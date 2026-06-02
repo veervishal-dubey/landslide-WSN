@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "landslide_wsn",
+			"path": "../../Documents/PlatformIO/Projects/landslide_wsn"
+		}
+	],
+	"settings": {}
+}

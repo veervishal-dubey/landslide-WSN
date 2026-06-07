@@ -1,4 +1,3 @@
-// Blynk essentials - MUST be first
 #define BLYNK_TEMPLATE_ID "TMPL3f95sR3sA"
 #define BLYNK_TEMPLATE_NAME "landslide wsn"
 #define BLYNK_AUTH_TOKEN "xifl5xSp78azqZ1SsZEds8IMYw-g7692"
@@ -19,6 +18,9 @@
 typedef struct {
   char NodeID[20];
   float soilMoistureReading;
+  float vibrationMagnitude;
+  bool soilAlert;
+  bool vibrationAlert;
   bool alert;
   bool heartbeat;
 } SensorMessage;
@@ -28,6 +30,9 @@ typedef struct {
   unsigned long lastSeen;
   bool online;
   float lastMoisture;
+  float lastVibration;
+  bool lastSoilAlert;
+  bool lastVibAlert;
 } nodeStatus;
 
 nodeStatus nodes[10];
@@ -44,6 +49,9 @@ int findOrAddNode(const char* id) {
     nodes[nodeCount].online = true;
     nodes[nodeCount].lastSeen = millis();
     nodes[nodeCount].lastMoisture = 0;
+    nodes[nodeCount].lastVibration = 0;
+    nodes[nodeCount].lastSoilAlert = false;
+    nodes[nodeCount].lastVibAlert = false;
     nodeCount++;
     Serial.printf("New Node Registered: %s\n", nodes[nodeCount-1].NodeID);
     return nodeCount - 1;
@@ -52,6 +60,7 @@ int findOrAddNode(const char* id) {
 }
 
 void onReceive(const esp_now_recv_info *info, const uint8_t *data, int len) {
+  Serial.println("Raw Packet:");
   SensorMessage msg;
   memcpy(&msg, data, sizeof(msg));
 
@@ -61,17 +70,23 @@ void onReceive(const esp_now_recv_info *info, const uint8_t *data, int len) {
   bool wasOnline = nodes[idx].online;
   nodes[idx].lastSeen = millis();
   nodes[idx].lastMoisture = msg.soilMoistureReading;
+  nodes[idx].lastVibration = msg.vibrationMagnitude;
+  nodes[idx].lastSoilAlert = msg.soilAlert;
+  nodes[idx].lastVibAlert = msg.vibrationAlert;
   nodes[idx].online = true;
 
   if (!wasOnline)
     Serial.printf("Node rejoined: %s\n", msg.NodeID);
 
-  Serial.printf("Node %s | Soil %.1f%% | Alert %s\n",
-    msg.NodeID, msg.soilMoistureReading, msg.alert ? "YES" : "NO");
+  Serial.printf("Node %s | Soil %.1f%% | Vib %.1f | Alert %s\n",
+    msg.NodeID, msg.soilMoistureReading, msg.vibrationMagnitude,
+    msg.alert ? "YES" : "NO");
 
   if (idx == 0) {
     Blynk.virtualWrite(V0, msg.soilMoistureReading);
     Blynk.virtualWrite(V2, 1);
+    Blynk.virtualWrite(V5, msg.vibrationMagnitude);
+    Blynk.virtualWrite(V6, msg.vibrationAlert ? 1 : 0);
   } else if (idx == 1) {
     Blynk.virtualWrite(V1, msg.soilMoistureReading);
     Blynk.virtualWrite(V3, 1);
@@ -106,8 +121,11 @@ void handleRoot() {
     html += "<b>Node " + String(i+1) + "</b> | " + String(nodes[i].NodeID) + "<br>";
     html += "Status: <span class='" + String(nodes[i].online ? "online'>ONLINE" : "offline'>OFFLINE") + "</span><br>";
     html += "Soil Moisture: " + String(nodes[i].lastMoisture, 1) + "%<br>";
-    if (nodes[i].lastMoisture > 70)
-      html += "<span class='alert'>⚠ HIGH MOISTURE</span>";
+    html += "Vibration: " + String(nodes[i].lastVibration, 1) + "<br>";
+    if (nodes[i].lastSoilAlert)
+      html += "<span class='alert'>⚠ HIGH MOISTURE</span><br>";
+    if (nodes[i].lastVibAlert)
+      html += "<span class='alert'>⚠ VIBRATION DETECTED</span><br>";
     html += "</div>";
   }
 
@@ -153,17 +171,20 @@ void setup() {
     Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
     Blynk.config(BLYNK_AUTH_TOKEN);
     Blynk.connect();
+    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
   } else {
     Serial.println("\nWiFi failed. Offline mode.");
   }
 
   WiFi.softAP("Fissure WSN", "landslide123");
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
   Serial.println("AP Started: " + WiFi.softAPIP().toString());
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW init failed");
     return;
   }
+  esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
   esp_now_register_recv_cb(onReceive);
   Serial.println("ESP Now ready.");
 
@@ -173,11 +194,15 @@ void setup() {
   Serial.println("Fissure is live.");
 }
 
+unsigned long lastTimeoutCheck = 0;
+
 void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     Blynk.run();
   }
   server.handleClient();
-  checkNodeTimeouts();
-  delay(1000);
+  if (millis() - lastTimeoutCheck >= 1000) {
+    checkNodeTimeouts();
+    lastTimeoutCheck = millis();
+  }
 }

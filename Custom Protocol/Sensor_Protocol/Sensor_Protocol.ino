@@ -24,7 +24,7 @@ bool mpuReady = false;
 int16_t ax, ay, az, gx, gy, gz;
 
 
-uint8_t gatewayMAC[] = {0xB0, 0xA7, 0x32, 0x17, 0x27, 0xF0};  // <-- AP MAC
+uint8_t gatewayMAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};  // enter the gateway MAC
 
 
 #define ESPNOW_CHANNEL 1
